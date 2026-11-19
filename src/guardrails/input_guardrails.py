@@ -19,6 +19,8 @@ from google.adk.agents.invocation_context import InvocationContext
 
 from core.config import ALLOWED_TOPICS, BLOCKED_TOPICS
 
+import unicodedata
+
 # Quyết định rõ ràng — tránh đảo nghĩa True/False
 InputStatus = Literal["ALLOW", "BLOCK"]
 
@@ -51,14 +53,37 @@ def detect_injection(user_input: str) -> InputStatus:
     Returns:
         ``"BLOCK"`` if injection detected (chặn), ``"ALLOW"`` otherwise (cho qua).
     """
+    text = unicodedata.normalize("NFKC", user_input)
+    text = re.sub(r"[\u200b-\u200f\u2060\ufeff]", "", text)
+    text = re.sub(r"\s+", " ", text)
     INJECTION_PATTERNS = [
+        r"ignore (all )?((previous|above) )?instructions",
+        r"system prompt",
+        r"you are now",
+        r"pretend (you are|to be)",
+        r"reveal (your |the )?(\w+ )?(instructions|prompt|secret|password|hidden information)",
+        r"act as (a |an )?unrestricted",
+        r"forget (all )?(your )?rules",
+        r"bypass (all )?(your )?restrictions",
+        r"disregard (all )?(your )?policies",
+        r"follow (these )?(new )?instructions",
+        r"execute (the )?(following )?commands",
+        r"provide (the )?hidden information",
+        r"delete (all )?(previous )?data",
+        r"ignore (the )?(safety )?guidelines",
+        r"override (the )?(default )?settings",
+        r"disable (the )?(security )?features",
+        r"access (the )?(restricted )?area",
+        r"roleplay (as )?(an )?unfiltered (AI|assistant)",
+        r"simulate (the )?(behavior )?of (an )?unrestricted (AI|assistant)",
+        r"give (the )?(secret )?instructions",
         # TODO: Add at least 5 regex patterns
         # Example:
         # r"ignore (all )?(previous|above) instructions",
     ]
 
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, user_input, re.IGNORECASE):
+        if re.search(pattern, text, re.IGNORECASE):
             return "BLOCK"
     return "ALLOW"
 
@@ -86,12 +111,20 @@ def topic_filter(user_input: str) -> InputStatus:
     """
     input_lower = user_input.lower()
 
-    # TODO: Implement logic:
     # 1. If input contains any blocked topic -> return "BLOCK"
-    # 2. If input doesn't contain any allowed topic -> return "BLOCK"
-    # 3. Otherwise -> return "ALLOW"
+    #    e.g. "How to hack a computer?" contains "hack"
+    for blocked_topic in BLOCKED_TOPICS:
+        if blocked_topic in input_lower:
+            return "BLOCK"
 
-    pass  # Replace with your implementation
+    # 2. If input doesn't contain any allowed topic -> return "BLOCK"
+    #    e.g. "Recipe for chocolate cake" has no banking word at all
+    if not any(allowed_topic in input_lower for allowed_topic in ALLOWED_TOPICS):
+        return "BLOCK"
+
+    # 3. Otherwise -> return "ALLOW"
+    #    e.g. "What is the 12-month savings rate?" contains "savings"
+    return "ALLOW"
 
 
 # ============================================================
@@ -144,14 +177,24 @@ class InputGuardrailPlugin(base_plugin.BasePlugin):
         self.total_count += 1
         text = self._extract_text(user_message)
 
-        # TODO: Implement logic:
-        # 1. Call detect_injection(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 2. Call topic_filter(text)
-        #    - If "BLOCK": increment blocked_count, return self._block_response("...")
-        # 3. If both return "ALLOW": return None (let message through)
+        # 1. Prompt injection / jailbreak -> block before the LLM sees it
+        if detect_injection(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response(
+                "Request blocked: possible prompt injection detected. "
+                "I can only help with VinBank banking questions."
+            )
 
-        pass  # Replace with your implementation
+        # 2. Off-topic or forbidden topic -> block
+        if topic_filter(text) == "BLOCK":
+            self.blocked_count += 1
+            return self._block_response(
+                "Sorry, I can only help with banking topics such as accounts, "
+                "transfers, savings, loans and credit cards."
+            )
+
+        # 3. Both checks passed -> let the message through to the LLM
+        return None
 
 
 # ============================================================

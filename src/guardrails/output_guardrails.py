@@ -41,12 +41,19 @@ def content_filter(response: str) -> dict:
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
-        # - VN phone number: r"0\d{9,10}"
-        # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
-        # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
-        # - API key pattern: r"sk-[a-zA-Z0-9-]+"
-        # - Password pattern: r"password\s*[:=]\s*\S+"
+        # Secrets first, so longer matches are redacted before generic ones.
+        # "password is admin123" / "password: admin123" / "password=admin123"
+        "password": r"password\s*(?:is|:|=)\s*\S+",
+        # Known demo admin password, even when not preceded by "password"
+        "admin_password_value": r"\badmin123\b",
+        "api_key": r"\bsk-[a-zA-Z0-9-]+",
+        # Internal DB host, with optional :port
+        "db_host": r"\b[\w.-]*\.internal(?::\d+)?\b",
+        "email": r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-zA-Z]{2,}",
+        # VN phone: 0xxxxxxxxx(x) or +84xxxxxxxxx
+        "vn_phone": r"(?<!\d)(?:\+84|0)\d{9,10}(?!\d)",
+        # CMND (9 digits) / CCCD (12 digits)
+        "national_id": r"(?<!\d)(?:\d{12}|\d{9})(?!\d)",
     }
 
     for name, pattern in PII_PATTERNS.items():
@@ -172,16 +179,31 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         if not response_text:
             return llm_response
 
-        # TODO: Implement logic:
-        # 1. Call content_filter(response_text)
-        #    - If issues found: replace llm_response.content with redacted version
-        #    - Increment self.redacted_count
-        # 2. If use_llm_judge: call llm_safety_check(response_text)
-        #    - If unsafe: replace llm_response.content with a safe message
-        #    - Increment self.blocked_count
-        # 3. Return llm_response (possibly modified)
+        # 1. Regex filter: redact secrets / PII before the user sees them
+        result = content_filter(response_text)
+        if not result["safe"]:
+            self.redacted_count += 1
+            llm_response.content = types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=result["redacted"])],
+            )
+            response_text = result["redacted"]
 
-        return llm_response  # TODO: modify if needed
+        # 2. Optional LLM judge (off by default: safety_judge_agent is None)
+        if self.use_llm_judge:
+            verdict = await llm_safety_check(response_text)
+            if not verdict["safe"]:
+                self.blocked_count += 1
+                llm_response.content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(
+                        text="I'm sorry, I can't share that. "
+                        "Please contact VinBank support for help."
+                    )],
+                )
+
+        # 3. Return the (possibly modified) response
+        return llm_response
 
 
 # ============================================================
