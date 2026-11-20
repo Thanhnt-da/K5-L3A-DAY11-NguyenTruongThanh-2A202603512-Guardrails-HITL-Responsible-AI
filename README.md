@@ -1,5 +1,38 @@
 # Day 11 — Controlled Agent Security (2026)
 
+## Bài nộp
+
+| | |
+|---|---|
+| **Họ tên** | Nguyen Truong Thanh |
+| **MSSV** | 2A202603512 |
+| **Lớp** | K5 · L3A · DAY11 |
+| **Repo** | `K5-L3A-DAY11-NguyenTruongThanh-2A202603512-Guardrails-HITL-Responsible-AI` |
+
+**Kết quả (từ `outputs/`, sinh tự động):**
+
+- **Blue (CP2–3):** safe bị chặn 0/5 · attack bị chặn 8/8 · rate limit chặn 5/15 · egress chặn 5/5 case xấu
+- **Red Team (CP4, `openai` / `gpt-4o-mini`):** leak Red 4/5 · leak Red Advance 0/5 (bị NeMo input rails chặn)
+- **Tự chấm (CP5):** smoke 39/39 · public 10/10 · `results.json` khớp schema
+
+**Cách chạy nhanh (Windows PowerShell, từ gốc repo):**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env   # điền OPENROUTER_API_KEY + OPENAI_API_KEY
+$env:PYTHONUTF8 = "1"          # tránh lỗi in tiếng Việt trên console Windows
+python src/main.py --part 2    # CP2: guardrails (in terminal)
+python src/main.py --part 3    # CP3: outputs/results.json, audit_log.json, metrics.json
+python src/main.py --part 4    # CP4: outputs/attack_results.json (+ 2 file chi tiết)
+python scripts/grade.py --submission-dir . --out outputs/grade_report.json
+```
+
+> Python 3.12 (NeMo Guardrails 0.24 chưa hỗ trợ Python 3.14).
+
+---
+
 > 👤 **Hình thức:** bài tập **cá nhân** (1 người / 1 MSSV).  
 > 🎯 **Mục tiêu:** đóng vai **Blue Team** để học cách xây Guardrails phòng thủ, rồi đóng vai **Red Team** để tấn công agent **Red** hoặc **Red Advance**.  
 > ✅ Làm theo **Checkpoint 1 → 5** trong [`CHECKPOINTS.md`](CHECKPOINTS.md) · nộp theo [`SUBMISSION.md`](SUBMISSION.md).
